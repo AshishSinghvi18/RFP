@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+from typing import Any, Generic, TypeVar
+
+from pydantic import BaseModel, ConfigDict, Field
+
+T = TypeVar("T")
+
+
+class SchemaBase(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SuccessResponse(SchemaBase, Generic[T]):
+    success: bool = True
+    data: T
+    meta: dict[str, Any] | None = None
+
+
+class ErrorDetail(SchemaBase):
+    code: str
+    message: str
+
+
+class ErrorResponse(SchemaBase):
+    success: bool = False
+    error: ErrorDetail
+
+
+class PaginationMeta(SchemaBase):
+    page: int = Field(..., ge=1)
+    page_size: int = Field(..., ge=1)
+    total: int = Field(..., ge=0)
+    total_pages: int = Field(..., ge=0)
