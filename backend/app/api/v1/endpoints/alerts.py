@@ -15,7 +15,7 @@ from app.core.exceptions import AppException
 from app.core.security import TokenPayload, get_current_user
 
 try:
-    from app.schemas.alert import AlertStatusUpdateRequest
+    from app.schemas.alert import AlertUpdate as AlertStatusUpdateRequest
 except ImportError:
     class AlertStatusUpdateRequest(BaseModel):
         """Fallback alert status schema until app.schemas.alert is available."""
@@ -61,13 +61,23 @@ async def list_alerts(
 ) -> dict[str, Any]:
     """List alerts for the authenticated user with optional unread filtering."""
     try:
-        result = await _get_service().list_user_alerts(
-            db=db,
-            user_id=current_user.sub,
-            unread=unread,
-            page=page,
-            page_size=page_size,
-        )
+        service = _get_service()
+        try:
+            result = await service.list_user_alerts(
+                db=db,
+                user_id=current_user.sub,
+                unread=unread,
+                page=page,
+                page_size=page_size,
+            )
+        except TypeError:
+            result = await service.list_alerts(
+                db=db,
+                user_id=current_user.sub,
+                unread_only=bool(unread),
+                page=page,
+                page_size=page_size,
+            )
         return _success_response(result, meta={"page": page, "page_size": page_size, "unread": unread})
     except AppException:
         raise
@@ -87,12 +97,16 @@ async def update_alert(
 ) -> dict[str, Any]:
     """Mark a single alert as read or unread."""
     try:
-        result = await _get_service().update_alert_status(
-            db=db,
-            alert_id=alert_id,
-            user_id=current_user.sub,
-            is_read=payload.is_read,
-        )
+        service = _get_service()
+        try:
+            result = await service.update_alert_status(
+                db=db,
+                alert_id=alert_id,
+                user_id=current_user.sub,
+                is_read=payload.is_read,
+            )
+        except TypeError:
+            result = await service.mark_alert_read(db=db, alert_id=alert_id, is_read=payload.is_read)
         return _success_response(result)
     except AppException:
         raise
@@ -107,7 +121,11 @@ async def update_alert(
 async def mark_all_read(current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Mark all alerts for the authenticated user as read."""
     try:
-        result = await _get_service().mark_all_alerts_read(db=db, user_id=current_user.sub)
+        service = _get_service()
+        try:
+            result = await service.mark_all_alerts_read(db=db, user_id=current_user.sub)
+        except TypeError:
+            result = await service.mark_all_read(db=db, user_id=current_user.sub)
         return _success_response(result)
     except AppException:
         raise

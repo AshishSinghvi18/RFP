@@ -22,7 +22,6 @@ except ImportError:
         model_config = ConfigDict(extra="allow")
 
         query: str = Field(min_length=1)
-        filters: dict[str, Any] = Field(default_factory=dict)
         page: int = Field(default=1, ge=1)
         page_size: int = Field(default=20, ge=1, le=100)
 
@@ -32,8 +31,8 @@ except ImportError:
         model_config = ConfigDict(extra="allow")
 
         query: str = Field(min_length=1)
-        filters: dict[str, Any] = Field(default_factory=dict)
-        top_k: int = Field(default=10, ge=1, le=100)
+        page: int = Field(default=1, ge=1)
+        page_size: int = Field(default=20, ge=1, le=100)
 
     class HybridSearchRequest(BaseModel):
         """Fallback hybrid search schema until app.schemas.search is available."""
@@ -41,10 +40,8 @@ except ImportError:
         model_config = ConfigDict(extra="allow")
 
         query: str = Field(min_length=1)
-        filters: dict[str, Any] = Field(default_factory=dict)
-        top_k: int = Field(default=10, ge=1, le=100)
-        keyword_weight: float = Field(default=0.5, ge=0.0, le=1.0)
-        semantic_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+        page: int = Field(default=1, ge=1)
+        page_size: int = Field(default=20, ge=1, le=100)
 
 try:
     from app.services import search_service
@@ -73,12 +70,24 @@ def _get_service() -> Any:
     return search_service
 
 
+def _page_args(payload: Any) -> tuple[int, int]:
+    """Extract pagination arguments from a request payload."""
+    page = int(getattr(payload, "page", 1) or 1)
+    page_size = int(getattr(payload, "page_size", getattr(payload, "top_k", 20)) or 20)
+    return page, page_size
+
+
 @router.post("/keyword", status_code=status.HTTP_200_OK)
 async def keyword_search(payload: KeywordSearchRequest, current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Run a keyword-based search across indexed opportunities."""
     try:
-        result = await _get_service().keyword_search(db=db, search_request=payload, user_id=current_user.sub)
-        return _success_response(result)
+        service = _get_service()
+        page, page_size = _page_args(payload)
+        try:
+            result = await service.keyword_search(db=db, search_request=payload, user_id=current_user.sub)
+        except TypeError:
+            result = await service.keyword_search(db=db, query=payload.query, page=page, page_size=page_size)
+        return _success_response(result, meta={"page": page, "page_size": page_size})
     except AppException:
         raise
     except HTTPException:
@@ -92,8 +101,13 @@ async def keyword_search(payload: KeywordSearchRequest, current_user: CurrentUse
 async def semantic_search(payload: SemanticSearchRequest, current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Run a semantic vector search across indexed opportunities."""
     try:
-        result = await _get_service().semantic_search(db=db, search_request=payload, user_id=current_user.sub)
-        return _success_response(result)
+        service = _get_service()
+        page, page_size = _page_args(payload)
+        try:
+            result = await service.semantic_search(db=db, search_request=payload, user_id=current_user.sub)
+        except TypeError:
+            result = await service.semantic_search(db=db, query=payload.query, page=page, page_size=page_size)
+        return _success_response(result, meta={"page": page, "page_size": page_size})
     except AppException:
         raise
     except HTTPException:
@@ -107,8 +121,13 @@ async def semantic_search(payload: SemanticSearchRequest, current_user: CurrentU
 async def hybrid_search(payload: HybridSearchRequest, current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Run a hybrid keyword and semantic search."""
     try:
-        result = await _get_service().hybrid_search(db=db, search_request=payload, user_id=current_user.sub)
-        return _success_response(result)
+        service = _get_service()
+        page, page_size = _page_args(payload)
+        try:
+            result = await service.hybrid_search(db=db, search_request=payload, user_id=current_user.sub)
+        except TypeError:
+            result = await service.hybrid_search(db=db, query=payload.query, page=page, page_size=page_size)
+        return _success_response(result, meta={"page": page, "page_size": page_size})
     except AppException:
         raise
     except HTTPException:

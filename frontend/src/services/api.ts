@@ -6,7 +6,7 @@ export const TOKEN_STORAGE_KEY = 'rfp-intelligence.token';
 export const USER_STORAGE_KEY = 'rfp-intelligence.user';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api/v1',
+  baseURL: '/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },

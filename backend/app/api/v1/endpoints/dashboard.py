@@ -43,7 +43,11 @@ def _get_service() -> Any:
 async def get_summary(current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Return KPI counts for the dashboard summary cards."""
     try:
-        result = await _get_service().get_dashboard_summary(db=db, user_id=current_user.sub)
+        service = _get_service()
+        if hasattr(service, "get_dashboard_summary"):
+            result = await service.get_dashboard_summary(db=db, user_id=current_user.sub)
+        else:
+            result = await service.get_summary(db=db)
         return _success_response(result)
     except AppException:
         raise
@@ -61,7 +65,11 @@ async def get_summary(current_user: CurrentUser, db: DBSession) -> dict[str, Any
 async def get_trends(current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Return weekly opportunity trend data for dashboard charts."""
     try:
-        result = await _get_service().get_opportunity_trends(db=db, user_id=current_user.sub)
+        service = _get_service()
+        if hasattr(service, "get_opportunity_trends"):
+            result = await service.get_opportunity_trends(db=db, user_id=current_user.sub)
+        else:
+            result = await service.get_trends(db=db)
         return _success_response(result)
     except AppException:
         raise
@@ -79,7 +87,11 @@ async def get_trends(current_user: CurrentUser, db: DBSession) -> dict[str, Any]
 async def get_heatmap(current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Return geographic opportunity distribution for the dashboard heatmap."""
     try:
-        result = await _get_service().get_geographic_heatmap(db=db, user_id=current_user.sub)
+        service = _get_service()
+        if hasattr(service, "get_geographic_heatmap"):
+            result = await service.get_geographic_heatmap(db=db, user_id=current_user.sub)
+        else:
+            result = await service.get_heatmap(db=db)
         return _success_response(result)
     except AppException:
         raise

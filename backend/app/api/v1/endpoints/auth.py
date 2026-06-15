@@ -10,12 +10,12 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.exceptions import AppException
-from app.core.security import TokenPayload, get_current_user, role_required
+from app.core.exceptions import AppException, UnauthorizedException
+from app.core.security import TokenPayload, create_access_token, get_current_user, role_required
 from app.models.user import UserRole
 
 try:
-    from app.schemas.auth import LoginRequest, UserCreateRequest
+    from app.schemas.auth import LoginRequest, UserCreate as UserCreateRequest
 except ImportError:
     class LoginRequest(BaseModel):
         """Fallback login schema until app.schemas.auth is available."""
@@ -64,12 +64,42 @@ def _get_service() -> Any:
     return auth_service
 
 
+def _model_dump(payload: Any) -> dict[str, Any]:
+    """Return a dictionary representation of a request payload."""
+    return payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else dict(payload)
+
+
+def _serialize_user(user: Any) -> dict[str, Any]:
+    """Serialize a user model into a JSON-safe payload."""
+    role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": role,
+        "is_active": user.is_active,
+        "last_login": user.last_login.isoformat() if user.last_login else None,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
+
 @router.post("/login", status_code=status.HTTP_200_OK)
 async def login(payload: LoginRequest, db: DBSession) -> dict[str, Any]:
     """Authenticate a user with email and password and return a JWT."""
     try:
-        result = await _get_service().login_user(db=db, login_data=payload)
-        return _success_response(result)
+        service = _get_service()
+        if hasattr(service, "login_user"):
+            result = await service.login_user(db=db, login_data=payload)
+            return _success_response(result)
+
+        credentials = _model_dump(payload)
+        user = await service.authenticate_user(db, credentials["email"], credentials["password"])
+        if user is None:
+            raise UnauthorizedException("Invalid email or password")
+
+        role = user.role.value if hasattr(user.role, "value") else str(user.role)
+        token = create_access_token(subject=str(user.id), email=user.email, roles=[role])
+        return _success_response({"token": token, "user": _serialize_user(user)})
     except AppException:
         raise
     except HTTPException:
@@ -83,8 +113,15 @@ async def login(payload: LoginRequest, db: DBSession) -> dict[str, Any]:
 async def get_me(current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Return the current authenticated user's profile."""
     try:
-        result = await _get_service().get_current_user_profile(db=db, user_id=current_user.sub)
-        return _success_response(result)
+        service = _get_service()
+        if hasattr(service, "get_current_user_profile"):
+            result = await service.get_current_user_profile(db=db, user_id=current_user.sub)
+            return _success_response(result)
+
+        user = await service.get_user_by_id(db=db, user_id=current_user.sub)
+        if user is None:
+            raise UnauthorizedException("Authenticated user could not be found")
+        return _success_response(_serialize_user(user))
     except AppException:
         raise
     except HTTPException:
@@ -101,8 +138,13 @@ async def get_me(current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
 async def register_user(payload: UserCreateRequest, db: DBSession, current_user: AdminUser) -> dict[str, Any]:
     """Create a new user account as an administrator."""
     try:
-        result = await _get_service().create_user(db=db, user_data=payload, created_by=current_user.sub)
-        return _success_response(result)
+        service = _get_service()
+        user_data = _model_dump(payload)
+        try:
+            result = await service.create_user(db=db, user_data=user_data, created_by=current_user.sub)
+        except TypeError:
+            result = await service.create_user(db=db, user_data=user_data)
+        return _success_response(_serialize_user(result) if hasattr(result, "id") else result)
     except AppException:
         raise
     except HTTPException:

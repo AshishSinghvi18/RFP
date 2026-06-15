@@ -77,6 +77,29 @@ def _get_service() -> Any:
     return opportunity_service
 
 
+def _model_dump(payload: Any) -> dict[str, Any]:
+    """Return a dictionary representation of a request payload."""
+    return payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else dict(payload)
+
+
+def _normalize_search_filters(filters: OpportunitySearchFilters) -> dict[str, Any]:
+    """Normalize search payloads for the service layer."""
+    payload = _model_dump(filters)
+    if "region" in payload:
+        payload["regions"] = [payload.pop("region")]
+    if "country" in payload:
+        payload["countries"] = [payload.pop("country")]
+    if "min_score" in payload:
+        payload["score_min"] = payload.pop("min_score")
+    if "max_score" in payload:
+        payload["score_max"] = payload.pop("max_score")
+    if "start_date" in payload:
+        payload["date_from"] = payload.pop("start_date")
+    if "end_date" in payload:
+        payload["date_to"] = payload.pop("end_date")
+    return payload
+
+
 @router.post("/search", status_code=status.HTTP_200_OK)
 async def search_opportunities(
     filters: OpportunitySearchFilters,
@@ -85,7 +108,12 @@ async def search_opportunities(
 ) -> dict[str, Any]:
     """Search opportunities using region, scoring, status, standards, date, and text filters."""
     try:
-        result = await _get_service().search_opportunities(db=db, filters=filters, user_id=current_user.sub)
+        service = _get_service()
+        filters_payload = _normalize_search_filters(filters)
+        try:
+            result = await service.search_opportunities(db=db, filters=filters_payload, user_id=current_user.sub)
+        except TypeError:
+            result = await service.search_opportunities(db=db, filters=filters_payload)
         return _success_response(result)
     except AppException:
         raise
@@ -103,11 +131,11 @@ async def search_opportunities(
 async def get_opportunity(opportunity_id: UUID, current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Return detailed information for a single opportunity."""
     try:
-        result = await _get_service().get_opportunity_by_id(
-            db=db,
-            opportunity_id=opportunity_id,
-            user_id=current_user.sub,
-        )
+        service = _get_service()
+        if hasattr(service, "get_opportunity_by_id"):
+            result = await service.get_opportunity_by_id(db=db, opportunity_id=opportunity_id, user_id=current_user.sub)
+        else:
+            result = await service.get_opportunity(db=db, opp_id=opportunity_id)
         return _success_response(result)
     except AppException:
         raise
@@ -130,12 +158,17 @@ async def update_opportunity(
 ) -> dict[str, Any]:
     """Update an opportunity's status, owner, or notes."""
     try:
-        result = await _get_service().update_opportunity(
-            db=db,
-            opportunity_id=opportunity_id,
-            update_data=payload,
-            updated_by=current_user.sub,
-        )
+        service = _get_service()
+        update_data = _model_dump(payload)
+        try:
+            result = await service.update_opportunity(
+                db=db,
+                opportunity_id=opportunity_id,
+                update_data=update_data,
+                updated_by=current_user.sub,
+            )
+        except TypeError:
+            result = await service.update_opportunity(db=db, opp_id=opportunity_id, update_data=update_data)
         return _success_response(result)
     except AppException:
         raise
@@ -158,12 +191,21 @@ async def add_comment(
 ) -> dict[str, Any]:
     """Add a comment to an opportunity."""
     try:
-        result = await _get_service().add_comment(
-            db=db,
-            opportunity_id=opportunity_id,
-            user_id=current_user.sub,
-            comment_data=payload,
-        )
+        service = _get_service()
+        try:
+            result = await service.add_comment(
+                db=db,
+                opportunity_id=opportunity_id,
+                user_id=current_user.sub,
+                comment_data=payload,
+            )
+        except TypeError:
+            result = await service.add_comment(
+                db=db,
+                opp_id=opportunity_id,
+                user_id=current_user.sub,
+                content=payload.content,
+            )
         return _success_response(result)
     except AppException:
         raise
@@ -181,11 +223,11 @@ async def add_comment(
 async def list_comments(opportunity_id: UUID, current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """List comments associated with an opportunity."""
     try:
-        result = await _get_service().list_comments(
-            db=db,
-            opportunity_id=opportunity_id,
-            user_id=current_user.sub,
-        )
+        service = _get_service()
+        if hasattr(service, "list_comments"):
+            result = await service.list_comments(db=db, opportunity_id=opportunity_id, user_id=current_user.sub)
+        else:
+            result = await service.get_comments(db=db, opp_id=opportunity_id)
         return _success_response(result)
     except AppException:
         raise

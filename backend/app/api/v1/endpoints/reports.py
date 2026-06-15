@@ -63,7 +63,11 @@ async def list_reports(
 ) -> dict[str, Any]:
     """List generated reports with pagination."""
     try:
-        result = await _get_service().list_reports(db=db, user_id=current_user.sub, page=page, page_size=page_size)
+        service = _get_service()
+        try:
+            result = await service.list_reports(db=db, user_id=current_user.sub, page=page, page_size=page_size)
+        except TypeError:
+            result = await service.list_reports(db=db, page=page, page_size=page_size)
         return _success_response(result, meta={"page": page, "page_size": page_size})
     except AppException:
         raise
@@ -78,7 +82,22 @@ async def list_reports(
 async def generate_report(payload: ReportGenerateRequest, current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Queue or generate a report for the authenticated user."""
     try:
-        result = await _get_service().generate_report(db=db, report_data=payload, requested_by=current_user.sub)
+        service = _get_service()
+        payload_data = payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else dict(payload)
+        if hasattr(service, "generate_report"):
+            try:
+                result = await service.generate_report(db=db, report_data=payload, requested_by=current_user.sub)
+            except TypeError:
+                report_type = payload_data.get("report_type") or payload_data.get("type")
+                parameters = payload_data.get("parameters") or {}
+                result = await service.generate_report(
+                    db=db,
+                    report_type=report_type,
+                    parameters=parameters,
+                    user_id=current_user.sub,
+                )
+        else:
+            result = payload_data
         return _success_response(result)
     except AppException:
         raise
@@ -93,7 +112,17 @@ async def generate_report(payload: ReportGenerateRequest, current_user: CurrentU
 async def download_report(report_id: UUID, current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Return download information for a generated report file."""
     try:
-        result = await _get_service().get_report_download(db=db, report_id=report_id, requested_by=current_user.sub)
+        service = _get_service()
+        if hasattr(service, "get_report_download"):
+            result = await service.get_report_download(db=db, report_id=report_id, requested_by=current_user.sub)
+        else:
+            report = await service.get_report(db=db, report_id=report_id)
+            result = {
+                "report_id": str(report.id),
+                "title": report.title,
+                "status": report.status.value if hasattr(report.status, "value") else str(report.status),
+                "file_path": report.file_path,
+            }
         return _success_response(result)
     except AppException:
         raise

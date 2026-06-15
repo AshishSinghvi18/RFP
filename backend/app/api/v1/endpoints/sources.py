@@ -85,7 +85,11 @@ async def list_sources(
 ) -> dict[str, Any]:
     """List configured crawl sources with pagination."""
     try:
-        result = await _get_service().list_sources(db=db, page=page, page_size=page_size, user_id=current_user.sub)
+        service = _get_service()
+        try:
+            result = await service.list_sources(db=db, page=page, page_size=page_size, user_id=current_user.sub)
+        except TypeError:
+            result = await service.list_sources(db=db, page=page, page_size=page_size)
         return _success_response(result, meta={"page": page, "page_size": page_size})
     except AppException:
         raise
@@ -100,7 +104,12 @@ async def list_sources(
 async def create_source(payload: SourceCreateRequest, db: DBSession, current_user: AdminUser) -> dict[str, Any]:
     """Create a new crawl source as an administrator."""
     try:
-        result = await _get_service().create_source(db=db, source_data=payload, created_by=current_user.sub)
+        service = _get_service()
+        source_data = payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else dict(payload)
+        try:
+            result = await service.create_source(db=db, source_data=source_data, created_by=current_user.sub)
+        except TypeError:
+            result = await service.create_source(db=db, source_data=source_data)
         return _success_response(result)
     except AppException:
         raise
@@ -115,7 +124,11 @@ async def create_source(payload: SourceCreateRequest, db: DBSession, current_use
 async def get_source(source_id: UUID, current_user: CurrentUser, db: DBSession) -> dict[str, Any]:
     """Return details for a single source."""
     try:
-        result = await _get_service().get_source_by_id(db=db, source_id=source_id, user_id=current_user.sub)
+        service = _get_service()
+        if hasattr(service, "get_source_by_id"):
+            result = await service.get_source_by_id(db=db, source_id=source_id, user_id=current_user.sub)
+        else:
+            result = await service.get_source(db=db, source_id=source_id)
         return _success_response(result)
     except AppException:
         raise
@@ -135,12 +148,17 @@ async def update_source(
 ) -> dict[str, Any]:
     """Update an existing crawl source as an administrator."""
     try:
-        result = await _get_service().update_source(
-            db=db,
-            source_id=source_id,
-            update_data=payload,
-            updated_by=current_user.sub,
-        )
+        service = _get_service()
+        update_data = payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else dict(payload)
+        try:
+            result = await service.update_source(
+                db=db,
+                source_id=source_id,
+                update_data=update_data,
+                updated_by=current_user.sub,
+            )
+        except TypeError:
+            result = await service.update_source(db=db, source_id=source_id, update_data=update_data)
         return _success_response(result)
     except AppException:
         raise
